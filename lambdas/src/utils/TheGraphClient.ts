@@ -176,7 +176,17 @@ export class TheGraphClient {
       mapper: (response) =>
         response.thirdParties.map((tp) => ({ urn: tp.id, description: tp.metadata.thirdParty.description }))
     }
-    return this.runQuery(query, { thirdPartyType: 'third_party_v1' })
+    return this.paginatableQuery(query, { thirdPartyType: 'third_party_v1' })
+  }
+
+  public async findThirdPartyResolver(subgraph: keyof URLs, id: string): Promise<string | undefined> {
+    const query: Query<{ thirdParty: { resolver: string } | undefined }, string | undefined> = {
+      description: 'fetch third party resolver',
+      subgraph: subgraph,
+      query: QUERY_THIRD_PARTY_RESOLVER,
+      mapper: (response) => response?.thirdParty?.resolver
+    }
+    return await this.runQuery(query, { id })
   }
 
   private async getWearablesByOwner(subgraph: keyof URLs, owner: string) {
@@ -362,8 +372,8 @@ export class TheGraphClient {
 }
 
 const QUERY_THIRD_PARTIES = `
-query ThirdParties() {
-  thirdParties {
+query ThirdParties($first: Int, $skip: Int) {
+  thirdParties(first: $first, skip: $skip) {
     id
 		metadata {
       thirdParty {
@@ -373,7 +383,15 @@ query ThirdParties() {
     }
   }
 }
+`
 
+const QUERY_THIRD_PARTY_RESOLVER = `
+query ThirdPartyResolver($id: String!) {
+  thirdParties(where: {id: $id}) {
+    id
+    resolver
+  }
+}
 `
 
 const QUERY_WEARABLES_BY_OWNER: string = `

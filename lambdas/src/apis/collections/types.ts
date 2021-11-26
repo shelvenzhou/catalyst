@@ -80,3 +80,11 @@ export type ThirdPartyIntegration = {
   urn: string
   description: string
 }
+
+export type ThirdPartyAsset = {
+  id: string
+  amount: number
+  urn: {
+    decentraland: string
+  }
+}
