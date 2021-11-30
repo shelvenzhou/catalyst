@@ -1,16 +1,14 @@
 import { toQueryParams } from '@catalyst/commons'
-import { EntityType, fetchJson } from 'dcl-catalyst-commons'
+import { EntityType } from 'dcl-catalyst-commons'
 import { EthAddress } from 'dcl-crypto'
 import { Request, Response } from 'express'
-import log4js from 'log4js'
 import { asArray, asInt } from '../../../utils/ControllerUtils'
 import { SmartContentClient } from '../../../utils/SmartContentClient'
 import { TheGraphClient } from '../../../utils/TheGraphClient'
+import { createThirdPartyFetcher, createThirdPartyResolver } from '../../../utils/third-party'
 import { BASE_AVATARS_COLLECTION_ID, OffChainWearablesManager } from '../off-chain/OffChainWearablesManager'
-import { ThirdPartyAsset, Wearable, WearableId, WearablesFilters, WearablesPagination } from '../types'
+import { Wearable, WearableId, WearablesFilters, WearablesPagination } from '../types'
 import { isBaseAvatar, translateEntityIntoWearable } from '../Utils'
-
-const LOGGER = log4js.getLogger('Wearables')
 
 // Different versions of the same query param
 const INCLUDE_DEFINITION_VERSIONS = [
@@ -38,8 +36,9 @@ export async function getWearablesByOwnerEndpoint(
       owner,
       includeDefinition,
       client,
-      theGraphClient,
-      collectionId as string
+      collectionId
+        ? await createThirdPartyResolver(theGraphClient, createThirdPartyFetcher(), collectionId as string)
+        : theGraphClient
     )
     res.send(wearablesByOwner)
   } catch (e) {
@@ -47,17 +46,18 @@ export async function getWearablesByOwnerEndpoint(
   }
 }
 
+export interface FindWearablesByOwner {
+  findWearablesByOwner: (owner: EthAddress) => Promise<WearableId[]>
+}
+
 export async function getWearablesByOwner(
   owner: EthAddress,
   includeDefinition: boolean,
   client: SmartContentClient,
-  theGraphClient: TheGraphClient,
-  collectionId?: string
+  wearablesResolver: FindWearablesByOwner
 ): Promise<{ urn: WearableId; amount: number; definition?: Wearable | undefined }[]> {
   // Fetch wearables & definitions (if needed)
-  const wearablesByOwner = collectionId
-    ? await findThirdPartyWearablesByOwner(theGraphClient, owner, collectionId)
-    : await theGraphClient.findWearablesByOwner(owner)
+  const wearablesByOwner = await wearablesResolver.findWearablesByOwner(owner)
   const definitions: Map<WearableId, Wearable> = includeDefinition
     ? await fetchDefinitions(wearablesByOwner, client)
     : new Map()
@@ -198,26 +198,4 @@ async function fetchWearables(wearableIds: WearableId[], client: SmartContentCli
 async function fetchDefinitions(wearableIds: WearableId[], client: SmartContentClient): Promise<Map<string, Wearable>> {
   const wearables = await fetchWearables(wearableIds, client)
   return new Map(wearables.map((wearable) => [wearable.id.toLowerCase(), wearable]))
-}
-
-async function findThirdPartyWearablesByOwner(
-  theGraphClient: TheGraphClient,
-  owner: EthAddress,
-  collectionId: string
-): Promise<WearableId[]> {
-  const thirdPartyResolverAPI = await theGraphClient.findThirdPartyResolver('thirdPartyRegistrySubgraph', collectionId)
-  if (!thirdPartyResolverAPI) throw new Error(`Could not find third party resolver for collectionId: ${collectionId}`)
-  return (await fetchAssetsByOwner(thirdPartyResolverAPI, owner, collectionId)) ?? []
-}
-
-async function fetchAssetsByOwner(
-  url: string,
-  owner: EthAddress,
-  registryId: string
-): Promise<WearableId[] | undefined> {
-  const assetsByOnwer = (await fetchJson(`${url}/registry/${registryId}/address/${owner}/assets`, {
-    timeout: '5000'
-  })) as ThirdPartyAsset[]
-  if (!assetsByOnwer) LOGGER.debug(`No assets found with owner: ${owner}, url: ${url} and registryId: ${registryId}`)
-  return assetsByOnwer?.map((asset) => asset.urn.decentraland)
 }
