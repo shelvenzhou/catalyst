@@ -2,6 +2,7 @@ import { toQueryParams } from '@catalyst/commons'
 import { EntityType } from 'dcl-catalyst-commons'
 import { EthAddress } from 'dcl-crypto'
 import { Request, Response } from 'express'
+import log4js from 'log4js'
 import { asArray, asInt } from '../../../utils/ControllerUtils'
 import { SmartContentClient } from '../../../utils/SmartContentClient'
 import { TheGraphClient } from '../../../utils/TheGraphClient'
@@ -10,6 +11,7 @@ import { BASE_AVATARS_COLLECTION_ID, OffChainWearablesManager } from '../off-cha
 import { Wearable, WearableId, WearablesFilters, WearablesPagination } from '../types'
 import { isBaseAvatar, translateEntityIntoWearable } from '../Utils'
 
+const LOGGER = log4js.getLogger('TheGraphClient')
 // Different versions of the same query param
 const INCLUDE_DEFINITION_VERSIONS = [
   'includeDefinition',
@@ -42,6 +44,7 @@ export async function getWearablesByOwnerEndpoint(
     )
     res.send(wearablesByOwner)
   } catch (e) {
+    LOGGER.debug(e)
     res.status(500).send(`Failed to fetch wearables by owner.`)
   }
 }

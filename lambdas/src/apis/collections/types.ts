@@ -88,3 +88,10 @@ export type ThirdPartyAsset = {
     decentraland: string
   }
 }
+
+export type ThirdPartyAssets = {
+  address: EthAddress
+  total: number
+  page: number
+  assets: ThirdPartyAsset[]
+}

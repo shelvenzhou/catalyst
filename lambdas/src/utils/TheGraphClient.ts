@@ -180,11 +180,11 @@ export class TheGraphClient {
   }
 
   public async findThirdPartyResolver(subgraph: keyof URLs, id: string): Promise<string | undefined> {
-    const query: Query<{ thirdParty: { resolver: string } | undefined }, string | undefined> = {
+    const query: Query<{ thirdParties: [{ resolver: string }] }, string | undefined> = {
       description: 'fetch third party resolver',
       subgraph: subgraph,
       query: QUERY_THIRD_PARTY_RESOLVER,
-      mapper: (response) => response?.thirdParty?.resolver
+      mapper: (response) => response.thirdParties[0]?.resolver
     }
     return await this.runQuery(query, { id })
   }

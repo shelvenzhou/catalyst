@@ -2,7 +2,7 @@ import { fetchJson } from 'dcl-catalyst-commons'
 import { EthAddress } from 'dcl-crypto'
 import log4js from 'log4js'
 import { FindWearablesByOwner } from '../apis/collections/controllers/wearables'
-import { ThirdPartyAsset } from '../apis/collections/types'
+import { ThirdPartyAsset, ThirdPartyAssets } from '../apis/collections/types'
 import { TheGraphClient } from './TheGraphClient'
 
 const LOGGER = log4js.getLogger('ThirdPartyResolver')
@@ -16,11 +16,11 @@ export const createThirdPartyFetcher = (): ThirdPartyFetcher => ({
     try {
       const assetsByOnwer = (await fetchJson(`${url}/registry/${collectionId}/address/${owner}/assets`, {
         timeout: '5000'
-      })) as ThirdPartyAsset[]
+      })) as ThirdPartyAssets
 
       if (!assetsByOnwer)
         LOGGER.debug(`No assets found with owner: ${owner}, url: ${url} and registryId: ${collectionId}`)
-      return assetsByOnwer
+      return assetsByOnwer?.assets ?? []
     } catch (e) {
       throw new Error(`Error fetching assets with owner: ${owner}, url: ${url} and registryId: ${collectionId}`)
     }
