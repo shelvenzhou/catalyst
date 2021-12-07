@@ -1,4 +1,5 @@
 import pgPromise, { IBaseProtocol, IDatabase, IInitOptions, IMain } from 'pg-promise'
+import { AppComponents } from 'src/types'
 import { retry } from '../helpers/RetryHelper'
 import { ContentFilesRepository } from './extensions/ContentFilesRepository'
 import { DenylistRepository } from './extensions/DenylistRepository'
@@ -41,25 +42,27 @@ export function build(
   connection: DBConnection,
   contentCredentials: DBCredentials,
   idleTimeoutMillis: number,
-  query_timeout: number
+  query_timeout: number,
+  components: Pick<AppComponents, 'database' | 'metrics' | 'staticConfigs'>
 ): Promise<FullDatabase> {
-  return connectTo(connection, contentCredentials, idleTimeoutMillis, query_timeout)
+  return connectTo(connection, contentCredentials, idleTimeoutMillis, query_timeout, components)
 }
 
 async function connectTo(
   connection: DBConnection,
   credentials: DBCredentials,
   idleTimeoutMillis: number,
-  query_timeout: number
+  query_timeout: number,
+  components: Pick<AppComponents, 'database' | 'metrics' | 'staticConfigs'>
 ) {
   type State = 'disconnected' | 'connecting' | 'connected' | 'retrying'
   let state = 'disconnected' as State
   const initOptions: IInitOptions<IExtensions> = {
     extend(obj: Database) {
-      obj.deployments = new DeploymentsRepository(obj)
+      obj.deployments = new DeploymentsRepository(obj, components)
       obj.migrationData = new MigrationDataRepository(obj)
-      obj.content = new ContentFilesRepository(obj)
-      obj.pointerHistory = new PointerHistoryRepository(obj)
+      obj.content = new ContentFilesRepository(obj, components)
+      obj.pointerHistory = new PointerHistoryRepository(obj, components)
       obj.lastDeployedPointers = new LastDeployedPointersRepository(obj)
       obj.deploymentPointerChanges = new DeploymentPointerChangesRepository(obj)
       obj.denylist = new DenylistRepository(obj)

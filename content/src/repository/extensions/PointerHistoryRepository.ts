@@ -1,51 +1,53 @@
-import { Entity } from 'dcl-catalyst-commons'
+import SQL from 'sql-template-strings'
+import { AppComponents } from 'src/types'
 import { Database } from '../../repository/Database'
 import { DeploymentId } from '../../repository/extensions/DeploymentsRepository'
 
 export class PointerHistoryRepository {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly components: Pick<AppComponents, 'database' | 'metrics' | 'staticConfigs'>
+  ) {}
 
   async calculateOverwrites(
     entity: Entity
   ): Promise<{ overwrote: Set<DeploymentId>; overwrittenBy: DeploymentId | null }> {
-    return this.db.taskIf(async (task) => {
-      const overwrote: DeploymentId[] = await task.map(
-        `
-                SELECT DISTINCT ON (pointer_history.pointer) dep1.id
-                FROM pointer_history
-                LEFT JOIN deployments AS dep1 ON pointer_history.deployment = dep1.id
-                LEFT JOIN deployments AS dep2 ON dep1.deleter_deployment = dep2.id
-                WHERE pointer_history.entity_type = $1 AND
-                    pointer_history.pointer IN ($2:list) AND
-                    (dep1.entity_timestamp < to_timestamp($3 / 1000.0) OR (dep1.entity_timestamp = to_timestamp($3 / 1000.0) AND dep1.entity_id < $4)) AND
-                    (dep2.id IS NULL OR dep2.entity_timestamp > to_timestamp($3 / 1000.0) OR (dep2.entity_timestamp = to_timestamp($3 / 1000.0) AND dep2.entity_id > $4))
-                ORDER BY pointer_history.pointer, dep1.entity_timestamp DESC, dep1.entity_id DESC`,
-        [entity.type, entity.pointers, entity.timestamp, entity.id],
-        (row) => row.id
-      )
+    const overwroteQuery = SQL`
+    SELECT DISTINCT ON (pointer_history.pointer) dep1.id
+    FROM pointer_history
+    LEFT JOIN deployments AS dep1 ON pointer_history.deployment = dep1.id
+    LEFT JOIN deployments AS dep2 ON dep1.deleter_deployment = dep2.id
+    WHERE pointer_history.entity_type = ${entity.type} AND
+        pointer_history.pointer = ANY (${entity.pointers}) AND
+        (dep1.entity_timestamp < to_timestamp(${entity.timestamp} / 1000.0) OR (dep1.entity_timestamp = to_timestamp(${entity.timestamp} / 1000.0) AND dep1.entity_id < ${entity.id})) AND
+        (dep2.id IS NULL OR dep2.entity_timestamp > to_timestamp(${entity.timestamp} / 1000.0) OR (dep2.entity_timestamp = to_timestamp(${entity.timestamp} / 1000.0) AND dep2.entity_id > ${entity.id}))
+    ORDER BY pointer_history.pointer, dep1.entity_timestamp DESC, dep1.entity_id DESC`
 
-      const overwrittenByMany = await task.manyOrNone(
-        `
-                SELECT deployments.id
-                FROM pointer_history
-                LEFT JOIN deployments ON pointer_history.deployment = deployments.id
-                WHERE pointer_history.entity_type = $1 AND
-                    pointer_history.pointer IN ($2:list) AND
-                    (deployments.entity_timestamp > to_timestamp($3 / 1000.0) OR (deployments.entity_timestamp = to_timestamp($3 / 1000.0) AND deployments.entity_id > $4))
-                ORDER BY deployments.entity_timestamp ASC, deployments.entity_id ASC
-                LIMIT 10`,
-        [entity.type, entity.pointers, entity.timestamp, entity.id]
-      )
-      let overwrittenBy: DeploymentId | null = null
-      if (overwrittenByMany.length > 0) {
-        overwrittenBy = overwrittenByMany[0].id
-      }
+    const overwrote: DeploymentId[] = (await this.components.database.queryWithValues(overwroteQuery)).rows.map(
+      (row: any) => row.id
+    )
 
-      return {
-        overwrote: new Set(overwrote),
-        overwrittenBy
-      }
-    })
+    const overwrittenByQuery = SQL`
+    SELECT deployments.id
+    FROM pointer_history
+    LEFT JOIN deployments ON pointer_history.deployment = deployments.id
+    WHERE pointer_history.entity_type = ${entity.type} AND
+        pointer_history.pointer = ANY(${entity.pointers}) AND
+        (deployments.entity_timestamp > to_timestamp(${entity.timestamp} / 1000.0) OR (deployments.entity_timestamp = to_timestamp(${entity.timestamp} / 1000.0) AND deployments.entity_id > ${entity.id}))
+    ORDER BY deployments.entity_timestamp ASC, deployments.entity_id ASC
+    LIMIT 10`
+
+    const overwrittenByMany: any[] = (await this.components.database.queryWithValues(overwrittenByQuery)).rows
+
+    let overwrittenBy: DeploymentId | null = null
+    if (overwrittenByMany.length > 0) {
+      overwrittenBy = overwrittenByMany[0].id
+    }
+
+    return {
+      overwrote: new Set(overwrote),
+      overwrittenBy
+    }
   }
 
   async addToHistory(deploymentId: DeploymentId, entity: Entity): Promise<void> {

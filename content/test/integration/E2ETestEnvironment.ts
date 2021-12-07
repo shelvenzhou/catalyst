@@ -56,8 +56,7 @@ export class E2ETestEnvironment {
       }
     }
 
-    const logs = createLogComponent()
-    this.database = await createDatabaseComponent({ logs, env: this.sharedEnv })
+    this.repository = await RepositoryFactory.create(this.sharedEnv, {} as any)
   }
 
   async stop(): Promise<void> {

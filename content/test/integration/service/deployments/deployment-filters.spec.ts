@@ -9,7 +9,7 @@ import { buildDeployData, buildDeployDataAfterEntity, EntityCombo } from '../../
 /**
  * This test verifies that all deployment filters are working correctly
  */
-loadStandaloneTestEnvironment()('Integration - Deployment Filters', (testEnv) => {
+fdescribe('Integration - Deployment Filters', () => {
   const P1 = 'x1,y1'
   const P2 = 'x2,y2'
   const P3 = 'x3,y3'
@@ -21,12 +21,63 @@ loadStandaloneTestEnvironment()('Integration - Deployment Filters', (testEnv) =>
     E3 = await buildDeployDataAfterEntity(E2, [P1, P2, P3], { type: EntityType.PROFILE })
   })
 
-  testCaseWithComponents(
-    testEnv,
-    'When local timestamp filter is set, then results are calculated correctly',
-    async (components) => {
-      // make noop validator
-      makeNoopValidator(components)
+  beforeEach(async () => {
+    service = await testEnv.buildService()
+  })
+
+  fit('When local timestamp filter is set, then results are calculated correctly', async () => {
+    // Deploy E1, E2 and E3
+    const [E1Timestamp, E2Timestamp, E3Timestamp] = await deploy(E1, E2, E3)
+
+    await assertDeploymentsWithFilterAre({}, E1, E2, E3)
+    await assertDeploymentsWithFilterAre({ from: E1Timestamp, to: E2Timestamp }, E1, E2)
+    await assertDeploymentsWithFilterAre({ from: E2Timestamp }, E2, E3)
+    await assertDeploymentsWithFilterAre({ from: E3Timestamp + 1 })
+  })
+
+  it('When entity types filter is set, then results are calculated correctly', async () => {
+    // Deploy E1 and E2
+    await deploy(E1, E2)
+
+    await assertDeploymentsWithFilterAre({}, E1, E2)
+    await assertDeploymentsWithFilterAre({ entityTypes: [EntityType.PROFILE] }, E1)
+    await assertDeploymentsWithFilterAre({ entityTypes: [EntityType.SCENE] }, E2)
+    await assertDeploymentsWithFilterAre({ entityTypes: [EntityType.PROFILE, EntityType.SCENE] }, E1, E2)
+  })
+
+  it('When entity ids filter is set, then results are calculated correctly', async () => {
+    // Deploy E1 and E2
+    await deploy(E1, E2)
+
+    await assertDeploymentsWithFilterAre({}, E1, E2)
+    await assertDeploymentsWithFilterAre({ entityIds: [E1.entity.id] }, E1)
+    await assertDeploymentsWithFilterAre({ entityIds: [E2.entity.id] }, E2)
+    await assertDeploymentsWithFilterAre({ entityIds: [E1.entity.id, E2.entity.id] }, E1, E2)
+  })
+
+  it('When deployed by filter is set, then results are calculated ignoring the casing', async () => {
+    const identity1 = 'Some-Identity'
+    const identity2 = 'another-identity'
+
+    // Deploy E1 and E2
+    await deployWithIdentity(identity1, E1)
+    await deployWithIdentity(identity2, E2)
+
+    await assertDeploymentsWithFilterAre({}, E1, E2)
+    await assertDeploymentsWithFilterAre({ deployedBy: [identity1] }, E1)
+    await assertDeploymentsWithFilterAre({ deployedBy: [identity1.toLowerCase()] }, E1)
+    await assertDeploymentsWithFilterAre({ deployedBy: [identity2] }, E2)
+    await assertDeploymentsWithFilterAre({ deployedBy: [identity1, identity2] }, E1, E2)
+    await assertDeploymentsWithFilterAre({ deployedBy: ['not-and-identity'] })
+  })
+
+  it('When deployed by filter is set, then results are calculated correctly', async () => {
+    await deploy(E1, E2, E3)
+
+    await assertDeploymentsWithFilterAre({}, E1, E2, E3)
+    await assertDeploymentsWithFilterAre({ onlyCurrentlyPointed: true }, E2, E3)
+    await assertDeploymentsWithFilterAre({ onlyCurrentlyPointed: false }, E1, E2, E3)
+  })
 
       // Deploy E1, E2 and E3
       const [E1Timestamp, E2Timestamp, E3Timestamp] = await deploy(components, E1, E2, E3)

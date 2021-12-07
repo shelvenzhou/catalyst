@@ -9,7 +9,50 @@ describe('DeploymentRepository', () => {
 
   beforeEach(() => {
     db = mock(MockedDataBase)
-    repository = new DeploymentsRepository(instance(db) as any)
+    repository = new DeploymentsRepository(instance(db) as any, {} as any)
+  })
+
+  describe('areEntitiesDeployed', () => {
+    beforeEach(() => {
+      db = mock(MockedDataBase)
+      repository = new DeploymentsRepository(instance(db) as any, {} as any)
+    })
+
+    describe('when the entities list is not empty', () => {
+      const dbResult = ['1', '2']
+      const entities = ['1', '3']
+      let result
+
+      beforeEach(async () => {
+        when(db.map(anything(), anything(), anything())).thenReturn(Promise.resolve(dbResult))
+        result = await repository.areEntitiesDeployed(entities)
+      })
+
+      it('should return a map of entity id to the deployment status', async () => {
+        expect(result).toEqual(
+          new Map([
+            ['1', true],
+            ['3', false]
+          ])
+        )
+      })
+
+      it('should call the db with the expected parameters', () => {
+        verify(
+          db.map('SELECT entity_id FROM deployments WHERE entity_id IN ($1:list)', deepEqual([entities]), anything())
+        ).once()
+      })
+    })
+
+    describe('when the entities list is empty', () => {
+      it('should return an empty map', async () => {
+        const result = await repository.areEntitiesDeployed([])
+
+        expect(result).toEqual(new Map())
+
+        verify(db.map(anything(), anything(), anything())).never()
+      })
+    })
   })
 
   describe('getAmountOfDeployments', () => {
@@ -21,7 +64,7 @@ describe('DeploymentRepository', () => {
 
     beforeEach(async () => {
       db = mock(MockedDataBase)
-      repository = new DeploymentsRepository(instance(db) as any)
+      repository = new DeploymentsRepository(instance(db) as any, {} as any)
 
       when(db.map(anything(), anything(), anything())).thenReturn(Promise.resolve(expectedResult))
       result = await repository.getAmountOfDeployments()
@@ -42,7 +85,7 @@ describe('DeploymentRepository', () => {
     describe("when it doesn't receive a lastId", () => {
       beforeEach(() => {
         db = mock(MockedDataBase)
-        repository = new DeploymentsRepository(instance(db) as any)
+        repository = new DeploymentsRepository(instance(db) as any, {} as any)
         when(db.map(anything(), anything(), anything())).thenReturn(Promise.resolve([]))
       })
 
@@ -88,7 +131,7 @@ describe('DeploymentRepository', () => {
 
       beforeEach(() => {
         db = mock(MockedDataBase)
-        repository = new DeploymentsRepository(instance(db) as any)
+        repository = new DeploymentsRepository(instance(db) as any, {} as any)
       })
 
       describe('when it receives a field or order to sort by', () => {
@@ -140,7 +183,7 @@ describe('DeploymentRepository', () => {
     describe('when there is a deployed by filter', () => {
       beforeEach(() => {
         db = mock(MockedDataBase)
-        repository = new DeploymentsRepository(instance(db) as any)
+        repository = new DeploymentsRepository(instance(db) as any, {} as any)
 
         when(db.map(anything(), anything(), anything())).thenReturn(Promise.resolve([]))
       })
@@ -213,10 +256,50 @@ describe('DeploymentRepository', () => {
     })
   })
 
+  describe('getSnapshot', () => {
+    beforeEach(() => {
+      db = mock(MockedDataBase)
+      repository = new DeploymentsRepository(instance(db) as any, {} as any)
+
+      const dbResult = ['1', '2']
+      when(db.map(anything(), anything(), anything())).thenReturn(Promise.resolve(dbResult))
+    })
+
+    it('should return a map of entity id to the deployment status', async () => {
+      const entityType = EntityType.PROFILE
+      await repository.getSnapshotPerEntityType(entityType)
+
+      const expectedQuery = `SELECT entity_id, entity_pointers, date_part('epoch', local_timestamp) * 1000 AS local_timestamp FROM deployments WHERE entity_type = $1 AND deleter_deployment IS NULL ORDER BY local_timestamp DESC, LOWER(entity_id) DESC`
+
+      verify(db.map(expectedQuery, deepEqual([entityType]), anything())).once()
+    })
+  })
+
+  describe('deploymentsSince', () => {
+    beforeEach(() => {
+      db = mock(MockedDataBase)
+      repository = new DeploymentsRepository(instance(db) as any, {} as any)
+
+      when(db.map(anything(), anything(), anything())).thenReturn(Promise.resolve([]))
+    })
+
+    it('should call the db with the expected query', async () => {
+      const entityType = EntityType.PROFILE
+      await repository.getSnapshotPerEntityType(entityType)
+
+      const expectedQuery = `SELECT entity_id, entity_pointers, date_part('epoch', local_timestamp) * 1000 AS local_timestamp FROM deployments WHERE entity_type = $1 AND deleter_deployment IS NULL ORDER BY local_timestamp DESC, LOWER(entity_id) DESC`
+
+      const args = capture(db.map).last()
+      expect(args[0]).toEqual(expectedQuery)
+
+      verify(db.map(expectedQuery, deepEqual([entityType]), anything())).once()
+    })
+  })
+
   describe('saveDeployment', () => {
     beforeEach(() => {
       db = mock(MockedDataBase)
-      repository = new DeploymentsRepository(instance(db) as any)
+      repository = new DeploymentsRepository(instance(db) as any, {} as any)
 
       when(db.one(anything(), anything(), anything())).thenReturn(Promise.resolve({}))
     })
@@ -305,7 +388,7 @@ describe('DeploymentRepository', () => {
     beforeEach(() => {
       db = spy(new MockedDataBase())
       const dbInstance = instance(db)
-      repository = new DeploymentsRepository(dbInstance as any)
+      repository = new DeploymentsRepository(dbInstance as any, {} as any)
 
       when(db.none(anything(), anything(), anything()))
         .thenReturn(...overwrittenDeployments.map((x) => x as any))
@@ -335,7 +418,7 @@ describe('DeploymentRepository', () => {
 
     beforeEach(async () => {
       db = mock(MockedDataBase)
-      repository = new DeploymentsRepository(instance(db) as any)
+      repository = new DeploymentsRepository(instance(db) as any, {} as any)
 
       when(db.map(anything(), anything(), anything())).thenReturn(Promise.resolve(dbResult))
       await repository.getActiveDeploymentsByContentHash(hashToSearch)

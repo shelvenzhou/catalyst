@@ -60,9 +60,17 @@ export class ServiceImpl implements MetaverseContentService {
     >,
     private readonly cache: CacheByType<Pointer, Entity>,
     private readonly deploymentsCache: { cache: NodeCache; maxSize: number }
-  ) {
-    this.serviceStorage = new ServiceStorage(components.storage)
-    ServiceImpl.LOGGER = components.logs.getLogger('ServiceImpl')
+  ) {}
+
+  async start(): Promise<void> {
+    const amountOfDeployments = await this.repository.task((task) => task.deployments.getAmountOfDeployments(), {
+      priority: DB_REQUEST_PRIORITY.HIGH
+    })
+    console.log(this.validator, this.isEntityRateLimited, this.areThereNewerEntitiesOnPointers)
+
+    for (const [, amount] of amountOfDeployments) {
+      this.historySize += amount
+    }
   }
 
   async start(): Promise<void> {}
@@ -200,27 +208,21 @@ export class ServiceImpl implements MetaverseContentService {
           const isEntityAlreadyDeployed = !!deployedEntity
 
           // Prepare validation functions that need context
-          const validationResult = await this.components.validator.validate(
-            { entity, auditInfo, files: hashes },
-            context,
-            {
-              areThereNewerEntities: (entity) => this.areThereNewerEntitiesOnPointers(entity),
-              fetchDeploymentStatus: (entityId) =>
-                Promise.resolve(this.components.failedDeploymentsCache.getDeploymentStatus(entityId)),
-              isContentStoredAlready: () => Promise.resolve(alreadyStoredContent),
-              isEntityDeployedAlready: (): Promise<boolean> => Promise.resolve(isEntityAlreadyDeployed),
-              isEntityRateLimited: (entity) => Promise.resolve(this.isEntityRateLimited(entity)),
-              fetchContentFileSize: async (hash) => await this.getSize(hash)
-            }
-          )
+          // const validationResult = await this.validator.validate({ entity, auditInfo, files: hashes }, context, {
+          //   fetchDeployments: (filters) => this.getDeployments({ filters }, transaction),
+          //   areThereNewerEntities: (entity) => this.areThereNewerEntitiesOnPointers(entity, transaction),
+          //   fetchDeploymentStatus: (type, id) =>
+          //     this.failedDeploymentsManager.getDeploymentStatus(transaction.failedDeployments, type, id),
+          //   isContentStoredAlready: () => Promise.resolve(alreadyStoredContent),
+          //   isEntityDeployedAlready: (entityIdToCheck: EntityId) =>
+          //     Promise.resolve(isEntityAlreadyDeployed && entityId === entityIdToCheck),
+          //   isEntityRateLimited: (entity) => Promise.resolve(this.isEntityRateLimited(entity)),
+          //   fetchContentFileSize: async (hash) => await this.getSize(hash)
+          // })
 
-          if (!validationResult.ok) {
-            ServiceImpl.LOGGER.warn(`Validations for deployment failed`, {
-              entityId,
-              errors: validationResult.errors.join(',')
-            })
-            return { errors: validationResult.errors }
-          }
+          // if (!validationResult.ok) {
+          //   return { errors: validationResult.errors }
+          // }
 
           const auditInfoComplete: AuditInfo = {
             ...auditInfo,

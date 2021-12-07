@@ -359,7 +359,91 @@ export class EnvironmentBuilder {
 
     this.registerConfigIfNotAlreadySet(env, EnvironmentConfig.VALIDATE_API, () => process.env.VALIDATE_API == 'true')
 
-    return await initComponentsWithEnv(env)
+    // Please put special attention on the bean registration order.
+    // Some beans depend on other beans, so the required beans should be registered before
+
+    const logs = createLogComponent()
+    const fetcher = createFetchComponent()
+    const metrics = metricsComponent
+    const staticConfigs: AppComponents['staticConfigs'] = {
+      contentStorageFolder: path.join(env.getConfig(EnvironmentConfig.STORAGE_ROOT_FOLDER), 'contents')
+    }
+    const database = await createDatabaseComponent(
+      { logs },
+      {
+        port: env.getConfig<number>(EnvironmentConfig.PSQL_PORT),
+        host: env.getConfig<string>(EnvironmentConfig.PSQL_HOST),
+        database: env.getConfig<string>(EnvironmentConfig.PSQL_DATABASE),
+        user: env.getConfig<string>(EnvironmentConfig.PSQL_USER),
+        password: env.getConfig<string>(EnvironmentConfig.PSQL_PASSWORD),
+        idleTimeoutMillis: env.getConfig<number>(EnvironmentConfig.PG_IDLE_TIMEOUT),
+        query_timeout: env.getConfig<number>(EnvironmentConfig.PG_QUERY_TIMEOUT)
+      }
+    )
+    const repository = await RepositoryFactory.create(env, { database, staticConfigs, metrics })
+
+    await database.start()
+
+    this.registerBeanIfNotAlreadySet(env, Bean.REPOSITORY, () => repository)
+    this.registerBeanIfNotAlreadySet(env, Bean.SYSTEM_PROPERTIES_MANAGER, () =>
+      SystemPropertiesManagerFactory.create(env)
+    )
+    this.registerBeanIfNotAlreadySet(env, Bean.CHALLENGE_SUPERVISOR, () => new ChallengeSupervisor())
+    this.registerBeanIfNotAlreadySet(env, Bean.CACHE_MANAGER, () => CacheManagerFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.FETCHER, () => FetcherFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.DAO_CLIENT, () => DAOClientFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.AUTHENTICATOR, () => AuthenticatorFactory.create(env))
+    const localStorage = await ContentStorageFactory.local(env)
+    this.registerBeanIfNotAlreadySet(env, Bean.STORAGE, () => localStorage)
+    this.registerBeanIfNotAlreadySet(env, Bean.CONTENT_CLUSTER, () => ContentClusterFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.DEPLOYMENT_MANAGER, () => DeploymentManagerFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.DENYLIST, () => DenylistFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.POINTER_MANAGER, () => PointerManagerFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.ACCESS_CHECKER, () => AccessCheckerImplFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.FAILED_DEPLOYMENTS_MANAGER, () => new FailedDeploymentsManager())
+    const ttl = env.getConfig(EnvironmentConfig.DEPLOYMENTS_RATE_LIMIT_TTL) as number
+    this.registerBeanIfNotAlreadySet(
+      env,
+      Bean.DEPLOYMENTS_RATE_LIMIT_CACHE,
+      () => new NodeCache({ stdTTL: ttl, checkperiod: ttl })
+    )
+    this.registerBeanIfNotAlreadySet(env, Bean.VALIDATOR, () => ValidatorFactory.create(env))
+    const deployer = ServiceFactory.create(env)
+    this.registerBeanIfNotAlreadySet(env, Bean.SERVICE, () => deployer)
+    this.registerBeanIfNotAlreadySet(
+      env,
+      Bean.SNAPSHOT_MANAGER,
+      () =>
+        new SnapshotManager(
+          { database, metrics, staticConfigs },
+          env.getBean(Bean.SYSTEM_PROPERTIES_MANAGER),
+          env.getBean(Bean.REPOSITORY),
+          env.getBean(Bean.SERVICE),
+          env.getConfig(EnvironmentConfig.SNAPSHOT_FREQUENCY),
+          env.getConfig(EnvironmentConfig.SNAPSHOT_FREQUENCY_IN_MILLISECONDS)
+        )
+    )
+    this.registerBeanIfNotAlreadySet(env, Bean.GARBAGE_COLLECTION_MANAGER, () =>
+      GarbageCollectionManagerFactory.create(env)
+    )
+    this.registerBeanIfNotAlreadySet(env, Bean.EVENT_DEPLOYER, () => EventDeployerFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.SYNCHRONIZATION_MANAGER, () =>
+      ClusterSynchronizationManagerFactory.create(env)
+    )
+    this.registerBeanIfNotAlreadySet(env, Bean.CONTROLLER, () => ControllerFactory.create(env))
+    this.registerBeanIfNotAlreadySet(env, Bean.MIGRATION_MANAGER, () => MigrationManagerFactory.create(env))
+
+    return {
+      env,
+      components: {
+        database,
+        deployer,
+        metrics,
+        fetcher,
+        logs,
+        staticConfigs
+      }
+    }
   }
 
   private registerConfigIfNotAlreadySet(env: Environment, key: EnvironmentConfig, valueProvider: () => any): void {

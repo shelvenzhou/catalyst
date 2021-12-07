@@ -1,9 +1,14 @@
-import { ContentFileHash, DeploymentContent, EntityContentItemReference, Timestamp } from 'dcl-catalyst-commons'
+import { ContentFileHash, Timestamp } from 'dcl-catalyst-commons'
+import { SQL } from 'sql-template-strings'
+import { AppComponents } from 'src/types'
 import { Database } from '../../repository/Database'
 import { DeploymentId } from './DeploymentsRepository'
 
 export class ContentFilesRepository {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly components: Pick<AppComponents, 'database' | 'metrics' | 'staticConfigs'>
+  ) {}
 
   findContentHashesNotBeingUsedAnymore(lastGarbageCollection: Timestamp): Promise<ContentFileHash[]> {
     return this.db.map(
@@ -39,16 +44,17 @@ export class ContentFilesRepository {
     return result
   }
 
-  async saveContentFiles(deploymentId: DeploymentId, content: EntityContentItemReference[]): Promise<void> {
-    await this.db.txIf((transaction) => {
-      const contentPromises = content.map((item) =>
-        transaction.none('INSERT INTO content_files (deployment, key, content_hash) VALUES ($1, $2, $3)', [
-          deploymentId,
-          item.file,
-          item.hash
-        ])
-      )
-      return transaction.batch(contentPromises)
+  async saveContentFiles(deploymentId: DeploymentId, content: Map<string, ContentFileHash>): Promise<void> {
+    const query = SQL`INSERT INTO content_files (deployment, key, content_hash) VALUES`
+    const contentEntries = Array.from(content.entries())
+    contentEntries.map(([name, hash], index) => {
+      if (index < contentEntries.length - 1) {
+        query.append(SQL`(${deploymentId}, ${name}, ${hash}),`)
+      } else {
+        query.append(SQL`(${deploymentId}, ${name}, ${hash})`)
+      }
     })
+
+    await this.components.database.queryWithValues(query)
   }
 }

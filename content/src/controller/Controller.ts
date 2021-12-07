@@ -122,6 +122,7 @@ export class Controller {
     let deployFiles: ContentFile[] = []
     try {
       deployFiles = files ? await this.readFiles(files) : []
+
       const auditInfo: LocalDeploymentAuditInfo = this.buildAuditInfo(authChain, ethAddress, signature, entityId)
 
       const deploymentResult = await this.components.deployer.deployEntity(

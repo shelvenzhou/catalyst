@@ -1,12 +1,14 @@
-import { AppComponents } from '../types'
+import { AppComponents } from 'src/types'
 import { Environment, EnvironmentConfig } from '../Environment'
 import { build } from './Database'
 import { Repository } from './Repository'
 import { RepositoryQueue } from './RepositoryQueue'
 
 export class RepositoryFactory {
-  static async create(components: Pick<AppComponents, 'env' | 'metrics'>): Promise<Repository> {
-    const { env } = components
+  static async create(
+    env: Environment,
+    components: Pick<AppComponents, 'database' | 'metrics' | 'staticConfigs'>
+  ): Promise<Repository> {
     const connection = {
       port: env.getConfig<number>(EnvironmentConfig.PSQL_PORT),
       host: env.getConfig<string>(EnvironmentConfig.PSQL_HOST)
@@ -21,7 +23,8 @@ export class RepositoryFactory {
       connection,
       contentCredentials,
       env.getConfig<number>(EnvironmentConfig.PG_IDLE_TIMEOUT),
-      env.getConfig<number>(EnvironmentConfig.PG_QUERY_TIMEOUT)
+      env.getConfig<number>(EnvironmentConfig.PG_QUERY_TIMEOUT),
+      components
     )
 
     const options = RepositoryFactory.parseQueueOptions(env)

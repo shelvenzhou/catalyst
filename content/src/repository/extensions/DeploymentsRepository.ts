@@ -11,6 +11,8 @@ import {
   Timestamp
 } from 'dcl-catalyst-commons'
 import { AuthChain, Authenticator } from 'dcl-crypto'
+import { SQL } from 'sql-template-strings'
+import { AppComponents } from 'src/types'
 import { Database } from '../../repository/Database'
 
 export type FullSnapshot = {
@@ -22,25 +24,29 @@ export type FullSnapshot = {
 }
 
 export class DeploymentsRepository {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly components: Pick<AppComponents, 'database' | 'metrics' | 'staticConfigs'>
+  ) {}
 
-  async getEntityById(entityId: EntityId) {
-    const result = await this.db.map(
-      `
-        SELECT
-          d.entity_id AS entity_id,
-          date_part('epoch', d.local_timestamp) * 1000 AS local_timestamp
-        FROM deployments d WHERE d.entity_id = $1
-        LIMIT 1
-      `,
-      [entityId],
-      (row) => ({
-        entityId: row.entity_id,
-        localTimestamp: row.local_timestamp
-      })
-    )
-    if (!result || result.length == 0) return undefined
-    return result[0]
+  async areEntitiesDeployed(entityIds: EntityId[]): Promise<Map<EntityId, boolean>> {
+    if (entityIds.length === 0) {
+      return new Map()
+    }
+
+    const query = SQL`SELECT entity_id FROM deployments WHERE entity_id = ANY (${[entityIds]})`
+
+    const resultQuery = await this.components.database.queryWithValues(query)
+    const results = resultQuery.rows.map(({ entity_id }) => entity_id)
+
+    // const result = await this.db.map(
+    //   'SELECT entity_id FROM deployments WHERE entity_id IN ($1:list)',
+    //   [entityIds],
+    //   ({ entity_id }) => entity_id
+    // )
+
+    const deployedIds = new Set(results)
+    return new Map(entityIds.map((entityId) => [entityId, deployedIds.has(entityId)]))
   }
 
   async getAmountOfDeployments(): Promise<Map<EntityType, number>> {
@@ -200,21 +206,33 @@ export class DeploymentsRepository {
     )
   }
 
-  saveDeployment(entity: Entity, auditInfo: AuditInfo, overwrittenBy: DeploymentId | null): Promise<DeploymentId> {
-    return this.db.one(
-      `INSERT INTO deployments (deployer_address, version, entity_type, entity_id, entity_timestamp, entity_pointers, entity_metadata, local_timestamp, auth_chain, deleter_deployment)` +
-        ` VALUES ` +
-        `($(deployer), $(entity.version), $(entity.type), $(entity.id), to_timestamp($(entity.timestamp) / 1000.0), $(entity.pointers), $(metadata), to_timestamp($(auditInfo.localTimestamp) / 1000.0), $(auditInfo.authChain:json), $(overwrittenBy))` +
-        ` RETURNING id`,
-      {
-        entity,
-        auditInfo,
-        metadata: entity.metadata ? { v: entity.metadata } : null, // We want to be able to store whatever we want, but psql is heavily typed. So we will wrap the metadata with an object
-        deployer: Authenticator.ownerAddress(auditInfo.authChain),
-        overwrittenBy
-      },
-      (deployment) => deployment.id
-    )
+  async saveDeployment(
+    entity: Entity,
+    auditInfo: AuditInfo,
+    overwrittenBy: DeploymentId | null
+  ): Promise<DeploymentId> {
+    const metadata = entity.metadata ? { v: entity.metadata } : null // We want to be able to store whatever we want, but psql is heavily typed. So we will wrap the metadata with an object
+
+    try {
+      const query = SQL`INSERT INTO deployments (deployer_address, version, entity_type, entity_id, entity_timestamp, entity_pointers, entity_metadata, local_timestamp, auth_chain, deleter_deployment)
+      VALUES
+      (${Authenticator.ownerAddress(auditInfo.authChain)}, ${entity.version}, ${entity.type}, ${
+        entity.id
+      }, to_timestamp(${entity.timestamp} / 1000.0), ${entity.pointers}, ${metadata}, to_timestamp(${
+        auditInfo.localTimestamp
+      } / 1000.0), ${JSON.stringify(auditInfo.authChain)}, ${overwrittenBy}) RETURNING id`
+
+      const ids: DeploymentId[] = (await this.components.database.queryWithValues(query)).rows.map(
+        (deployment: { id: number }) => deployment.id
+      )
+      const result: DeploymentId = ids.pop()!
+      return result
+    } catch (err) {
+      console.log('err', err)
+      throw err
+    }
+
+    // return result
   }
 
   async setEntitiesAsOverwritten(allOverwritten: Set<DeploymentId>, overwrittenBy: DeploymentId): Promise<void> {

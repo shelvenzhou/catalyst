@@ -9,17 +9,11 @@ import { DeploymentOptions } from './types'
 export class DeploymentManager {
   private static MAX_HISTORY_LIMIT = 500
 
-  async getEntityById(
-    deploymentsRepository: DeploymentsRepository,
-    entityId: string
-  ): Promise<
-    | {
-        entityId: any
-        localTimestamp: any
-      }
-    | undefined
-  > {
-    return deploymentsRepository.getEntityById(entityId)
+  async areEntitiesDeployed(
+    deploymentRepository: DeploymentsRepository,
+    entityIds: EntityId[]
+  ): Promise<Map<EntityId, boolean>> {
+    return deploymentRepository.areEntitiesDeployed(entityIds)
   }
 
   async getDeployments(
