@@ -10,7 +10,7 @@ import { loadStandaloneTestEnvironment } from './E2ETestEnvironment'
 import { buildDeployData, createIdentity } from './E2ETestUtils'
 import { TestProgram } from './TestProgram'
 
-loadStandaloneTestEnvironment()('End 2 end - Legacy Entities', (testEnv) => {
+fdescribe('End 2 end - Legacy Entities', () => {
   const identity = createIdentity()
   let server: TestProgram
 
@@ -25,7 +25,8 @@ loadStandaloneTestEnvironment()('End 2 end - Legacy Entities', (testEnv) => {
 
   it(`When a non-decentraland address tries to deploy a legacy entity, then an exception is thrown`, async () => {
     // Prepare entity to deploy
-    const { deployData } = await buildDeployData(['0,0'], { metadata: 'metadata', identity: createIdentity() })
+    const { deployData } = await buildDeployData(['0,0', '0,1'], { metadata: 'metadata', identity: createIdentity() })
+    console.log('LLEGA 1')
 
     // Try to deploy the entity
     await assertPromiseRejectionIs(

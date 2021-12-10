@@ -13,6 +13,9 @@ import {
 } from 'dcl-catalyst-commons'
 import { AuthChain, Authenticator } from 'dcl-crypto'
 import NodeCache from 'node-cache'
+import { ContentFilesRepository } from 'src/repository/extensions/ContentFilesRepository'
+import { DeploymentsRepository } from 'src/repository/extensions/DeploymentsRepository'
+import { PointerHistoryRepository } from 'src/repository/extensions/PointerHistoryRepository'
 import { Readable } from 'stream'
 import { FailedDeployment, FailureReason } from '../ports/failedDeploymentsCache'
 import { Database } from '../repository/Database'
@@ -59,7 +62,10 @@ export class ServiceImpl implements MetaverseContentService {
       | 'database'
     >,
     private readonly cache: CacheByType<Pointer, Entity>,
-    private readonly deploymentsCache: { cache: NodeCache; maxSize: number }
+    private readonly deploymentsCache: { cache: NodeCache; maxSize: number },
+    private readonly deploymentsRepository: DeploymentsRepository,
+    private readonly pointerHistoryRepository: PointerHistoryRepository,
+    private readonly contentFileRepository: ContentFilesRepository
   ) {}
 
   async start(): Promise<void> {
@@ -434,8 +440,9 @@ export class ServiceImpl implements MetaverseContentService {
     return this.serviceStorage.storeContent(fileHash, content)
   }
 
-  getEntityById(entityId: EntityId, task?: Database): Promise<{ entityId: EntityId; localTimestamp: number } | void> {
-    return this.components.repository.reuseIfPresent(
+  areEntitiesAlreadyDeployed(entityIds: EntityId[], task?: Database): Promise<Map<EntityId, boolean>> {
+    this.deploymentManager
+    return this.repository.reuseIfPresent(
       task,
       (db) => this.components.deploymentManager.getEntityById(db.deployments, entityId),
       {

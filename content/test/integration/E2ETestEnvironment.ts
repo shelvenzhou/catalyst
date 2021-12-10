@@ -1,17 +1,30 @@
-import { DAOClient, ServerBaseUrl } from '@catalyst/commons'
 import { createLogComponent } from '@well-known-components/logger'
+import { ServerAddress } from 'dcl-catalyst-commons'
 import { random } from 'faker'
 import ms from 'ms'
-import { spy } from 'sinon'
+import path from 'path'
+import { AppComponents } from 'src/types'
 import { GenericContainer, StartedTestContainer } from 'testcontainers'
 import { Container } from 'testcontainers/dist/container'
 import { LogWaitStrategy } from 'testcontainers/dist/wait-strategy'
-import { DEFAULT_DATABASE_CONFIG, Environment, EnvironmentBuilder, EnvironmentConfig } from '../../src/Environment'
-import { stopAllComponents } from '../../src/logic/components-lifecycle'
+import {
+  Bean,
+  DEFAULT_DATABASE_CONFIG,
+  Environment,
+  EnvironmentBuilder,
+  EnvironmentConfig
+} from '../../src/Environment'
+import { metricsComponent } from '../../src/metrics'
 import { MigrationManagerFactory } from '../../src/migrations/MigrationManagerFactory'
-import { createDatabaseComponent, IDatabaseComponent } from '../../src/ports/postgres'
-import { AppComponents } from '../../src/types'
+import { createDatabaseComponent } from '../../src/ports/postgres'
+import { Repository } from '../../src/repository/Repository'
+import { RepositoryFactory } from '../../src/repository/RepositoryFactory'
+import { DB_REQUEST_PRIORITY } from '../../src/repository/RepositoryQueue'
+import { MetaverseContentService } from '../../src/service/Service'
+import { MockedAccessChecker } from '../helpers/service/access/MockedAccessChecker'
 import { MockedDAOClient } from '../helpers/service/synchronization/clients/MockedDAOClient'
+import { NoOpValidator } from '../helpers/service/validations/NoOpValidator'
+import { FileSystemUtils as fsu } from '../unit/storage/FileSystemUtils'
 import { isCI } from './E2ETestUtils'
 import { TestProgram } from './TestProgram'
 
@@ -23,6 +36,7 @@ export class E2ETestEnvironment {
   private database: IDatabaseComponent
   private sharedEnv: Environment
   private dao: MockedDAOClient
+  private components: Pick<AppComponents, 'metrics' | 'staticConfigs' | 'database'>
 
   async start(overrideConfigs?: Record<number, any>): Promise<void> {
     if (!isCI()) {
@@ -37,6 +51,7 @@ export class E2ETestEnvironment {
 
     const mappedPort =
       this.postgresContainer?.getMappedPort(E2ETestEnvironment.POSTGRES_PORT) ?? E2ETestEnvironment.POSTGRES_PORT
+
     this.sharedEnv = new Environment()
       .setConfig(EnvironmentConfig.PSQL_PASSWORD, DEFAULT_DATABASE_CONFIG.password)
       .setConfig(EnvironmentConfig.PSQL_USER, DEFAULT_DATABASE_CONFIG.user)
@@ -47,16 +62,43 @@ export class E2ETestEnvironment {
       .setConfig(EnvironmentConfig.LOG_LEVEL, 'off')
       .setConfig(EnvironmentConfig.BOOTSTRAP_FROM_SCRATCH, false)
       .setConfig(EnvironmentConfig.METRICS, false)
+      .setConfig(EnvironmentConfig.STORAGE_ROOT_FOLDER, fsu.createTempDirectory())
+      .registerBean(Bean.ACCESS_CHECKER, new MockedAccessChecker())
 
-    if (overrideConfigs) {
-      for (const key in overrideConfigs) {
-        const value = overrideConfigs[key]
-        console.debug('Override for Environment Config: ', (<any>EnvironmentConfig)[key], value)
-        this.sharedEnv.setConfig(parseInt(key) as EnvironmentConfig, value)
-      }
+    const logs = createLogComponent()
+    let contentStorageFolder
+    try {
+      contentStorageFolder = path.join(this.sharedEnv.getConfig(EnvironmentConfig.STORAGE_ROOT_FOLDER), 'contents')
+    } catch (err) {
+      console.log('FAILURE', err)
+    }
+    const staticConfigs: AppComponents['staticConfigs'] = {
+      contentStorageFolder
     }
 
-    this.repository = await RepositoryFactory.create(this.sharedEnv, {} as any)
+    this.components = {
+      metrics: metricsComponent,
+      staticConfigs,
+      database: await createDatabaseComponent(
+        { logs },
+        {
+          port: this.sharedEnv.getConfig<number>(EnvironmentConfig.PSQL_PORT),
+          host: this.sharedEnv.getConfig<string>(EnvironmentConfig.PSQL_HOST),
+          database: this.sharedEnv.getConfig<string>(EnvironmentConfig.PSQL_DATABASE),
+          user: this.sharedEnv.getConfig<string>(EnvironmentConfig.PSQL_USER),
+          password: this.sharedEnv.getConfig<string>(EnvironmentConfig.PSQL_PASSWORD),
+          idleTimeoutMillis: this.sharedEnv.getConfig<number>(EnvironmentConfig.PG_IDLE_TIMEOUT),
+          query_timeout: this.sharedEnv.getConfig<number>(EnvironmentConfig.PG_QUERY_TIMEOUT)
+        }
+      )
+    }
+
+    overrideConfigs?.forEach((value: any, key: EnvironmentConfig) => {
+      console.debug('Override for Environment Config: ', (<any>EnvironmentConfig)[key], value)
+      this.sharedEnv.setConfig(key, value)
+    })
+
+    this.repository = await RepositoryFactory.create(this.sharedEnv, this.components)
   }
 
   async stop(): Promise<void> {
@@ -175,8 +217,7 @@ export class ServerBuilder {
 
   async andBuildOnPorts(ports: number[]): Promise<TestProgram[]> {
     const databaseNames = await this.testEnvCalls.createDatabases(ports.length)
-
-    const servers: TestProgram[] = []
+    const servers: TestServer[] = []
     for (let i = 0; i < ports.length; i++) {
       const port = ports[i]
       const address = `http://localhost:${port}`

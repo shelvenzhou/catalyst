@@ -9,7 +9,7 @@ import { buildDeployData, buildDeployDataAfterEntity, EntityCombo } from '../../
 /**
  * This test verifies that all deployment filters are working correctly
  */
-fdescribe('Integration - Deployment Filters', () => {
+describe('Integration - Deployment Filters', () => {
   const P1 = 'x1,y1'
   const P2 = 'x2,y2'
   const P3 = 'x3,y3'
@@ -25,7 +25,7 @@ fdescribe('Integration - Deployment Filters', () => {
     service = await testEnv.buildService()
   })
 
-  fit('When local timestamp filter is set, then results are calculated correctly', async () => {
+  it('When local timestamp filter is set, then results are calculated correctly', async () => {
     // Deploy E1, E2 and E3
     const [E1Timestamp, E2Timestamp, E3Timestamp] = await deploy(E1, E2, E3)
 
